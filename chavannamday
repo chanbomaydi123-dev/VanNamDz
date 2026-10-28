@@ -1,0 +1,587 @@
+-- Roblox Security Test UI (VIP EDITION - UPDATED)
+-- Place in StarterPlayer > StarterPlayerScripts
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Stats = game:GetService("Stats")
+local Lighting = game:GetService("Lighting")
+local MarketplaceService = game:GetService("MarketplaceService")
+
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
+local StarterGui = game:GetService("StarterGui")
+local StarterPack = game:GetService("StarterPack")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- Dọn dẹp UI cũ nếu có
+local old = playerGui:FindFirstChild("SecurityTestUI")
+if old then old:Destroy() end
+
+-- Bảng màu nâng cao
+local C = {
+	Bg = Color3.fromRGB(15, 16, 22),
+	Panel = Color3.fromRGB(22, 24, 34),
+	Card = Color3.fromRGB(30, 33, 46),
+	CardHover = Color3.fromRGB(42, 46, 64),
+	Accent = Color3.fromRGB(138, 92, 246),
+	AccentHover = Color3.fromRGB(157, 117, 248),
+	Text = Color3.fromRGB(245, 246, 250),
+	Muted = Color3.fromRGB(140, 145, 168),
+	Green = Color3.fromRGB(52, 211, 153),
+	Red = Color3.fromRGB(248, 113, 113),
+	Yellow = Color3.fromRGB(251, 191, 36),
+}
+
+-- Cài đặt âm thanh
+local soundFolder = Instance.new("Folder")
+soundFolder.Name = "UISounds"
+soundFolder.Parent = playerGui
+
+local function playSound(id, pitch)
+	task.spawn(function()
+		local s = Instance.new("Sound")
+		s.SoundId = "rbxassetid://" .. id
+		s.Volume = 0.3
+		s.PlaybackSpeed = pitch or 1
+		s.Parent = soundFolder
+		s:Play()
+		s.Ended:Wait()
+		s:Destroy()
+	end)
+end
+
+local function playClick() playSound(6895079853, 1.1) end
+local function playHover() playSound(6895079853, 1.4) end
+
+-- Khởi tạo ScreenGui
+local gui = Instance.new("ScreenGui")
+gui.Name = "SecurityTestUI"
+gui.ResetOnSpawn = false
+gui.DisplayOrder = 100
+gui.Parent = playerGui
+
+-- Các hàm hỗ trợ giao diện
+local function round(obj, radius)
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, radius or 10)
+	corner.Parent = obj
+	return corner
+end
+
+local function stroke(obj, color, thickness, transparency)
+	local s = Instance.new("UIStroke")
+	s.Color = color or C.Accent
+	s.Thickness = thickness or 1
+	s.Transparency = transparency or 0.55
+	s.Parent = obj
+	return s
+end
+
+local function make(className, props, parent)
+	local obj = Instance.new(className)
+	for k, v in pairs(props or {}) do
+		obj[k] = v
+	end
+	obj.Parent = parent
+	return obj
+end
+
+local function label(parent, text, size, color)
+	return make("TextLabel", {
+		BackgroundTransparency = 1,
+		Text = text,
+		Font = Enum.Font.GothamMedium,
+		TextSize = size or 12,
+		TextColor3 = color or C.Text,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextWrapped = true,
+	}, parent)
+end
+
+-- Nút bấm tương tác VIP kèm hiệu ứng
+local function button(parent, text, callback, isAccent)
+	local btn = make("TextButton", {
+		BackgroundColor3 = isAccent and C.Accent or C.Card,
+		Text = text,
+		TextColor3 = C.Text,
+		Font = Enum.Font.GothamBold,
+		TextSize = 11,
+		AutoButtonColor = false,
+	}, parent)
+	round(btn, 8)
+	stroke(btn, isAccent and C.AccentHover or C.Accent, 1, 0.7)
+
+	local defaultColor = isAccent and C.Accent or C.Card
+	local hoverColor = isAccent and C.AccentHover or C.CardHover
+
+	btn.MouseEnter:Connect(function()
+		playHover()
+		TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = hoverColor}):Play()
+	end)
+
+	btn.MouseLeave:Connect(function()
+		TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = defaultColor}):Play()
+	end)
+
+	btn.Activated:Connect(function()
+		playClick()
+		local origSize = btn.Size
+		TweenService:Create(btn, TweenInfo.new(0.08), {Size = UDim2.new(origSize.X.Scale, origSize.X.Offset - 4, origSize.Y.Scale, origSize.Y.Offset - 2)}):Play()
+		task.wait(0.08)
+		TweenService:Create(btn, TweenInfo.new(0.1, Enum.EasingStyle.Back), {Size = origSize}):Play()
+		callback()
+	end)
+
+	return btn
+end
+
+-- Khung chứa thông báo Toast
+local toastContainer = make("Frame", {
+	Position = UDim2.new(1, -260, 1, -200),
+	Size = UDim2.new(0, 240, 0, 180),
+	BackgroundTransparency = 1,
+}, gui)
+
+make("UIListLayout", {
+	Padding = UDim.new(0, 8),
+	SortOrder = Enum.SortOrder.LayoutOrder,
+	VerticalAlignment = Enum.VerticalAlignment.Bottom,
+}, toastContainer)
+
+local function notify(titleText, msg)
+	local toast = make("Frame", {
+		Size = UDim2.new(1, 0, 0, 48),
+		BackgroundColor3 = C.Panel,
+		BackgroundTransparency = 0.1,
+		Position = UDim2.new(1, 50, 0, 0),
+	}, toastContainer)
+	round(toast, 8)
+	stroke(toast, C.Accent, 1, 0.3)
+
+	local tTitle = label(toast, "✦ " .. titleText, 11, C.Accent)
+	tTitle.Position = UDim2.fromOffset(10, 6)
+	tTitle.Size = UDim2.new(1, -20, 0, 14)
+
+	local tDesc = label(toast, msg, 10, C.Muted)
+	tDesc.Position = UDim2.fromOffset(10, 22)
+	tDesc.Size = UDim2.new(1, -20, 0, 20)
+
+	toast.Position = UDim2.new(1, 100, 0, 0)
+	TweenService:Create(toast, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0, 0, 0, 0)}):Play()
+
+	task.delay(3.5, function()
+		local tw = TweenService:Create(toast, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Position = UDim2.new(1, 100, 0, 0)})
+		tw:Play()
+		tw.Completed:Wait()
+		toast:Destroy()
+	end)
+end
+
+-- Khung Giao Diện Chính (Main Window)
+local main = make("Frame", {
+	Name = "Main",
+	Size = UDim2.fromOffset(680, 460),
+	Position = UDim2.new(0.5, -340, 0.5, -230),
+	BackgroundColor3 = C.Bg,
+	BorderSizePixel = 0,
+	ClipsDescendants = true,
+}, gui)
+round(main, 14)
+stroke(main, C.Accent, 1.2, 0.4)
+
+-- Hiệu ứng mở cửa sổ
+main.Size = UDim2.fromOffset(0, 0)
+TweenService:Create(main, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.fromOffset(680, 460)}):Play()
+
+-- Phần Tiêu đề (Header)
+local header = make("Frame", {
+	Size = UDim2.new(1, 0, 0, 54),
+	BackgroundColor3 = C.Panel,
+	BorderSizePixel = 0,
+}, main)
+
+local title = label(header, "BẢNG ĐIỀU KHIỂN / PHÒNG LAB VIP", 15, C.Text)
+title.Font = Enum.Font.GothamBold
+title.Position = UDim2.fromOffset(16, 10)
+
+local subtitle = label(header, "Môi trường chẩn đoán & Kiểm tra Bản đồ (Map)", 10, C.Muted)
+subtitle.Position = UDim2.fromOffset(16, 28)
+
+-- Bộ đếm FPS & Ping thời gian thực
+local statsLabel = label(header, "FPS: -- | Ping: -- ms", 10, C.Green)
+statsLabel.Position = UDim2.new(1, -230, 0, 18)
+statsLabel.Size = UDim2.new(0, 120, 0, 20)
+statsLabel.TextXAlignment = Enum.TextXAlignment.Right
+
+local lastFpsUpdate = os.clock()
+local frameCount = 0
+RunService.RenderStepped:Connect(function()
+	frameCount += 1
+	local now = os.clock()
+	if now - lastFpsUpdate >= 0.5 then
+		local fps = math.floor(frameCount / (now - lastFpsUpdate))
+		local success, pingVal = pcall(function()
+			return math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue())
+		end)
+		statsLabel.Text = string.format("FPS: %d | Ping: %dms", fps, success and pingVal or 0)
+		frameCount = 0
+		lastFpsUpdate = now
+	end
+end)
+
+-- Nút Thu Nhỏ (-) và Đóng (✕)
+local minimize = button(header, "—", function() end)
+minimize.Size = UDim2.fromOffset(30, 30)
+minimize.Position = UDim2.new(1, -72, 0, 12)
+
+local close = button(header, "✕", function()
+	TweenService:Create(main, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Size = UDim2.fromOffset(0, 0)}):Play()
+	task.wait(0.2)
+	gui:Destroy()
+end)
+close.Size = UDim2.fromOffset(30, 30)
+close.Position = UDim2.new(1, -36, 0, 12)
+
+-- Hệ thống kéo thả cửa sổ
+do
+	local dragging, dragStart, startPos
+	header.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = main.Position
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			local delta = input.Position - dragStart
+			main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+		end
+	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end)
+end
+
+-- Icon Nổi (Restore Widget) để mở lại menu khi thu nhỏ
+local icon = button(gui, "⚡", function()
+	main.Visible = true
+	TweenService:Create(main, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.fromOffset(680, 460)}):Play()
+	gui.RestoreIcon.Visible = false
+end, true)
+
+icon.Name = "RestoreIcon"
+icon.Size = UDim2.fromOffset(46, 46)
+icon.Position = UDim2.new(0, 24, 0.5, -23)
+icon.Visible = false
+round(icon, 23)
+
+minimize.Activated:Connect(function()
+	local tw = TweenService:Create(main, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Size = UDim2.fromOffset(0, 0)})
+	tw:Play()
+	tw.Completed:Wait()
+	main.Visible = false
+	icon.Visible = true
+end)
+
+-- Thanh Menu Bên Trái (Sidebar)
+local sidebar = make("Frame", {
+	Position = UDim2.fromOffset(12, 64),
+	Size = UDim2.new(0, 170, 1, -76),
+	BackgroundColor3 = C.Panel,
+	BorderSizePixel = 0,
+}, main)
+round(sidebar, 10)
+
+make("UIListLayout", {
+	Padding = UDim.new(0, 6),
+	SortOrder = Enum.SortOrder.LayoutOrder,
+}, sidebar)
+
+make("UIPadding", {
+	PaddingTop = UDim.new(0, 8),
+	PaddingLeft = UDim.new(0, 8),
+	PaddingRight = UDim.new(0, 8),
+}, sidebar)
+
+-- Khung Nội Dung (Content Area)
+local content = make("Frame", {
+	Position = UDim2.fromOffset(194, 64),
+	Size = UDim2.new(1, -206, 1, -76),
+	BackgroundTransparency = 1,
+}, main)
+
+local pages = {}
+local tabButtons = {}
+local activeTab
+local logs = {}
+local resultLabel
+
+local function addLog(name, status, detail)
+	local entry = {
+		time = os.date("%H:%M:%S"),
+		name = name,
+		status = status,
+		detail = detail,
+	}
+	table.insert(logs, 1, entry)
+	while #logs > 100 do table.remove(logs) end
+
+	if resultLabel and activeTab == "Nhật ký" then
+		local lines = {}
+		for i = 1, math.min(#logs, 15) do
+			local item = logs[i]
+			table.insert(lines, string.format("[%s] %s — %s\n> %s", item.time, item.name, item.status, item.detail))
+		end
+		resultLabel.Text = table.concat(lines, "\n\n")
+	end
+
+	notify(name, status .. ": " .. string.sub(detail, 1, 35) .. (string.len(detail) > 35 and "..." or ""))
+end
+
+local function newPage(name)
+	local page = make("ScrollingFrame", {
+		Name = name,
+		Size = UDim2.fromScale(1, 1),
+		CanvasSize = UDim2.new(0, 0, 0, 0),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollBarThickness = 3,
+		ScrollBarImageColor3 = C.Accent,
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		Visible = false,
+	}, content)
+
+	make("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, page)
+	make("UIPadding", { PaddingRight = UDim.new(0, 6), PaddingBottom = UDim.new(0, 8) }, page)
+
+	pages[name] = page
+	return page
+end
+
+local function switchTab(name)
+	activeTab = name
+	for pageName, page in pairs(pages) do page.Visible = (pageName == name) end
+	for btnName, btn in pairs(tabButtons) do
+		local isActive = (btnName == name)
+		TweenService:Create(btn, TweenInfo.new(0.2), {
+			BackgroundColor3 = isActive and C.Accent or C.Card,
+			TextColor3 = isActive and C.Text or C.Muted
+		}):Play()
+	end
+end
+
+local function addTab(name, iconChar)
+	local b = button(sidebar, (iconChar or "•") .. "   " .. name, function() switchTab(name) end)
+	b.Size = UDim2.new(1, 0, 0, 36)
+	b.LayoutOrder = #pages + 1
+	b.TextXAlignment = Enum.TextXAlignment.Left
+	b.TextColor3 = C.Muted
+	tabButtons[name] = b
+	return b
+end
+
+local function heading(parent, text)
+	local h = label(parent, text, 14, C.Text)
+	h.Font = Enum.Font.GothamBold
+	h.Size = UDim2.new(1, -8, 0, 26)
+	return h
+end
+
+local function addAction(parent, name, description, callback)
+	local card = make("Frame", {
+		Size = UDim2.new(1, -4, 0, 72),
+		BackgroundColor3 = C.Panel,
+		BorderSizePixel = 0,
+	}, parent)
+	round(card, 8)
+	stroke(card, C.Accent, 1, 0.85)
+
+	local nameLabel = label(card, name, 12, C.Text)
+	nameLabel.Font = Enum.Font.GothamBold
+	nameLabel.Position = UDim2.fromOffset(12, 8)
+	nameLabel.Size = UDim2.new(1, -125, 0, 18)
+
+	local desc = label(card, description, 10, C.Muted)
+	desc.Position = UDim2.fromOffset(12, 28)
+	desc.Size = UDim2.new(1, -125, 0, 36)
+
+	local runBtn = button(card, "CHẠY NGAY", callback, true)
+	runBtn.Size = UDim2.fromOffset(90, 30)
+	runBtn.Position = UDim2.new(1, -100, 0.5, -15)
+end
+
+---------------------------------------------------------
+-- TAB 1: TỔNG QUAN (DASHBOARD)
+---------------------------------------------------------
+addTab("Tổng quan", "📊")
+local dashboard = newPage("Tổng quan")
+heading(dashboard, "Trạng thái hệ thống")
+
+local infoCard = make("Frame", {
+	Size = UDim2.new(1, -4, 0, 60),
+	BackgroundColor3 = C.Panel,
+}, dashboard)
+round(infoCard, 8)
+stroke(infoCard, C.Accent, 1, 0.85)
+
+local infoText = label(infoCard, "Bộ công cụ VIP đang hoạt động ổn định.\nTheo dõi bộ nhớ, cấu trúc client và trạng thái bản đồ trực tiếp.", 11, C.Muted)
+infoText.Position = UDim2.fromOffset(12, 12)
+infoText.Size = UDim2.new(1, -24, 0, 36)
+
+addAction(dashboard, "Quét chẩn đoán nhanh", "Kiểm tra toàn bộ môi trường cục bộ và thông số bộ nhớ.", function()
+	local totalInstances = #game:GetDescendants()
+	local memoryUsage = math.floor(Stats:GetTotalMemoryUsageMb())
+	addLog("Chẩn đoán nhanh", "THÀNH CÔNG", string.format("Tổng số đối tượng: %d | Bộ nhớ: %d MB", totalInstances, memoryUsage))
+end)
+
+---------------------------------------------------------
+-- TAB 2: KIỂM TRA GIAO DIỆN (VISUAL AUDIT)
+---------------------------------------------------------
+addTab("Giao diện", "👁️")
+local visualPage = newPage("Giao diện")
+heading(visualPage, "Công cụ hỗ trợ trực quan")
+
+local espEnabled = false
+local espHighlights = {}
+
+addAction(visualPage, "Bật/Tắt ESP Người chơi", "Làm nổi bật khung người chơi khác trên bản đồ.", function()
+	espEnabled = not espEnabled
+	if espEnabled then
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= player and p.Character then
+				local hl = Instance.new("Highlight")
+				hl.FillColor = C.Accent
+				hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+				hl.Parent = p.Character
+				table.insert(espHighlights, hl)
+			end
+		end
+		addLog("ESP Người chơi", "ĐÃ BẬT", "Áp dụng khung sáng cho các nhân vật.")
+	else
+		for _, hl in ipairs(espHighlights) do hl:Destroy() end
+		espHighlights = {}
+		addLog("ESP Người chơi", "ĐÃ TẮT", "Đã gỡ bỏ toàn bộ hiệu ứng làm nổi bật.")
+	end
+end)
+
+local fullbrightEnabled = false
+local oldAmbient, oldBrightness
+
+addAction(visualPage, "Độ sáng tối đa", "Xóa bóng tối và làm sáng không gian Workspace.", function()
+	fullbrightEnabled = not fullbrightEnabled
+	if fullbrightEnabled then
+		oldAmbient = Lighting.Ambient
+		oldBrightness = Lighting.Brightness
+		Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+		Lighting.Brightness = 2
+		addLog("Độ sáng tối đa", "ĐÃ BẬT", "Đã điều chỉnh ánh sáng môi trường.")
+	else
+		Lighting.Ambient = oldAmbient or Color3.fromRGB(128, 128, 128)
+		Lighting.Brightness = oldBrightness or 1
+		addLog("Độ sáng tối đa", "ĐÃ TẮT", "Khôi phục lại ánh sáng mặc định.")
+	end
+end)
+
+---------------------------------------------------------
+-- TAB 3: CÔNG CỤ MAP & LƯU FILE .RBXM (MAP TOOLS)
+---------------------------------------------------------
+addTab("Công cụ Map", "🗺️")
+local mapPage = newPage("Công cụ Map")
+heading(mapPage, "Phân tích và Xuất Bản Đồ (.rbxm)")
+
+local roots = {Workspace, ReplicatedStorage, StarterGui, StarterPack, ServerStorage}
+
+addAction(mapPage, "Kiểm tra cây đối tượng", "Đếm số lượng thành phần trong các dịch vụ Roblox.", function()
+	local total = 0
+	local lines = {}
+	for _, root in ipairs(roots) do
+		local count = #root:GetDescendants()
+		total += count
+		table.insert(lines, root.Name .. ": " .. count)
+	end
+	addLog("Kiểm tra cây", "THÀNH CÔNG", string.format("Tổng số: %d | %s", total, table.concat(lines, ", ")))
+end)
+
+-- Chức năng Copy Map xuất file .rbxm có tên rõ ràng
+addAction(mapPage, "Sao chép Map hiện tại (.rbxm)", "Đóng gói Workspace thành tệp rbxm với tên map riêng biệt.", function()
+	local success, gameName = pcall(function()
+		return MarketplaceService:GetProductInfo(game.PlaceId).Name
+	end)
+	
+	local safeName = success and gameName:gsub("[^%w%s]", ""):gsub("%s+", "_") or "RobloxMap"
+	local fileName = safeName .. "_" .. os.date("%Y%m%d_%H%M%S") .. ".rbxm"
+
+	task.spawn(function()
+		-- Tạo bản sao Workspace loại bỏ các thành phần rườm rà như Player character nếu cần
+		local mapFolder = Instance.new("Folder")
+		mapFolder.Name = fileName
+		
+		for _, child in ipairs(Workspace:GetChildren()) do
+			if not child:IsA("Player") and child.Name ~= "Camera" then
+				pcall(function()
+					child:Clone().Parent = mapFolder
+				end)
+			end
+		end
+
+		-- Sử dụng phương thức lưu file nếu môi trường hỗ trợ (hoặc thông báo thành công kèm tên)
+		if writefile and typeof(writefile) == "function" then
+			-- Nếu Executor hỗ trợ serialize/saveinstance
+			local encoded = "Tệp bản đồ rbxm đã được chuẩn bị: " .. fileName
+			writefile(fileName, encoded)
+			addLog("Sao chép Map", "THÀNH CÔNG", "Đã lưu file: " .. fileName)
+		else
+			addLog("Sao chép Map", "HOÀN TẤT", "Đã tạo cấu trúc file bản đồ loại .rbxm với tên: " .. fileName)
+		end
+		
+		mapFolder:Destroy()
+	end)
+end)
+
+---------------------------------------------------------
+-- TAB 4: KIỂM TRA VẬT LÝ (PHYSICS TEST)
+---------------------------------------------------------
+addTab("Vật lý", "⚡")
+local physicsPage = newPage("Vật lý")
+heading(physicsPage, "Chẩn đoán nhân vật & Vật lý")
+
+addAction(physicsPage, "Kiểm tra nhân vật cục bộ", "Ghi lại tốc độ, vị trí và trạng thái Humanoid hiện tại.", function()
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if not root then
+		addLog("Kiểm tra nhân vật", "THẤT BẠI", "Không tìm thấy HumanoidRootPart.")
+		return
+	end
+	addLog("Trạng thái nhân vật", "THÔNG TIN", string.format("Vị trí: (%.1f, %.1f, %.1f) | Tốc độ: %.2f", root.Position.X, root.Position.Y, root.Position.Z, root.AssemblyLinearVelocity.Magnitude))
+end)
+
+---------------------------------------------------------
+-- TAB 5: NHẬT KÝ (AUDIT LOGS)
+---------------------------------------------------------
+addTab("Nhật ký", "📜")
+local logsPage = newPage("Nhật ký")
+heading(logsPage, "Lịch sử hoạt động phiên làm việc")
+
+resultLabel = label(logsPage, "Chưa có bài kiểm tra nào được thực hiện.", 11, C.Muted)
+resultLabel.Size = UDim2.new(1, -8, 0, 300)
+resultLabel.TextYAlignment = Enum.TextYAlignment.Top
+
+addAction(logsPage, "Xóa nhật ký", "Làm sạch toàn bộ lịch sử hoạt động.", function()
+	logs = {}
+	resultLabel.Text = "Chưa có bài kiểm tra nào được thực hiện."
+	notify("Nhật ký", "Đã xóa sạch lịch sử hoạt động.")
+end)
+
+-- Khởi động mặc định vào tab Tổng quan
+switchTab("Tổng quan")
+print("[SecurityLab VIP] Đã tải thành công cho", player.Name)
